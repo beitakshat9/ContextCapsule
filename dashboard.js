@@ -1,66 +1,85 @@
 let currentFilter = "All";
 
-const defaultCategories = ["Evidence", "Idea", "Counterargument", "Reference"];
+const defaultCategories = [
+    "Evidence",
+    "Idea",
+    "Definition",
+    "Counterargument",
+    "Reference",
+    "Quote",
+    "Need to verify"
+];
 
 const defaultColors = {
-    "Evidence": "#10b981",
+    "Evidence": "#3b82f6",
     "Idea": "#8b5cf6",
+    "Definition": "#06b6d4",
     "Counterargument": "#ef4444",
-    "Reference": "#3b82f6"
+    "Reference": "#f59e0b",
+    "Quote": "#10b981",
+    "Need to verify": "#f97316"
 };
 
-const fallbackColors = ["#f59e0b", "#14b8a6", "#ec4899", "#6366f1"];
+const fallbackColors = [
+    "#3b82f6",
+    "#8b5cf6",
+    "#06b6d4",
+    "#ef4444",
+    "#f59e0b",
+    "#10b981",
+    "#f97316",
+    "#ec4899"
+];
 
 let globalClips = [];
 
-function getDateGroup(timestamp) {
 
-    const date = timestamp ? new Date(timestamp) : new Date();
+/* =========================================================
+   DATE GROUPING
+========================================================= */
+
+function getDateGroup(timestamp) {
+    const date = new Date(timestamp);
 
     if (isNaN(date.getTime())) {
-        return "older";
+        return "Older";
     }
 
     const now = new Date();
 
-    // Remove the time portion so we compare calendar dates only
     const today = new Date(
         now.getFullYear(),
         now.getMonth(),
         now.getDate()
     );
 
-    const clipDay = new Date(
-        date.getFullYear(),
-        date.getMonth(),
-        date.getDate()
-    );
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
 
-    const difference = today - clipDay;
-    const oneDay = 24 * 60 * 60 * 1000;
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 7);
 
-    if (difference === 0) {
-        return "today";
+    if (date >= today) {
+        return "Today";
     }
 
-    if (difference === oneDay) {
-        return "yesterday";
+    if (date >= yesterday) {
+        return "Yesterday";
     }
 
-    if (difference > oneDay && difference <= 7 * oneDay) {
-        return "last7days";
+    if (date >= sevenDaysAgo) {
+        return "Last 7 Days";
     }
 
-    return "older";
+    return "Older";
 }
 
 
-// ------------------------------------------
-// CONFIDENCE DISPLAY
-// ------------------------------------------
+/* =========================================================
+   CONFIDENCE
+========================================================= */
 
 function getConfidenceDisplay(clip) {
-
     const level =
         clip.confidence &&
         typeof clip.confidence.level === "string" ?
@@ -88,1595 +107,2266 @@ function getConfidenceDisplay(clip) {
 }
 
 
-function renderVault() {
+/* =========================================================
+   RESEARCH SESSION HELPERS
+========================================================= */
+
+function createResearchSessionId() {
+    return `session-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+}
+
+
+function formatSessionDate(timestamp) {
+    if (!timestamp) {
+        return "";
+    }
+
+    const date = new Date(timestamp);
+
+    if (isNaN(date.getTime())) {
+        return "";
+    }
+
+    return date.toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+        year: "numeric"
+    });
+}
+
+
+function escapeHtml(value) {
+    if (value === null || value === undefined) {
+        return "";
+    }
+
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+
+/* =========================================================
+   RESEARCH SESSION UI
+========================================================= */
+
+function ensureResearchSessionStyles() {
+    if (document.getElementById("research-session-styles")) {
+        return;
+    }
+
+    const style = document.createElement("style");
+    style.id = "research-session-styles";
+
+    style.textContent = `
+        .research-session-wrapper {
+            width: 100%;
+            margin-bottom: 24px;
+        }
+
+        .research-session-card {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 20px;
+            box-sizing: border-box;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }
+
+        .research-session-card.active {
+            border-color: #6366f1;
+            box-shadow: 0 4px 14px rgba(99,102,241,0.10);
+        }
+
+        .research-session-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+        }
+
+        .research-session-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 5px;
+        }
+
+        .research-session-description {
+            font-size: 13px;
+            color: #6b7280;
+            line-height: 1.5;
+        }
+
+        .research-session-active-name {
+            font-size: 16px;
+            font-weight: 700;
+            color: #111827;
+            margin-top: 2px;
+        }
+
+        .research-session-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #16a34a;
+            margin-top: 8px;
+        }
+
+        .research-session-status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #22c55e;
+            display: inline-block;
+        }
+
+        .research-session-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 18px;
+        }
+
+        .research-session-button {
+            border: none;
+            border-radius: 9px;
+            padding: 9px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.15s ease;
+        }
+
+        .research-session-button.primary {
+            background: #111827;
+            color: #ffffff;
+        }
+
+        .research-session-button.primary:hover {
+            background: #000000;
+        }
+
+        .research-session-button.secondary {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .research-session-button.secondary:hover {
+            background: #e5e7eb;
+        }
+
+        .research-session-button.synthesize {
+            background: #6366f1;
+            color: #ffffff;
+        }
+
+        .research-session-button.synthesize:hover {
+            background: #4f46e5;
+        }
+
+        .research-session-button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        .research-session-count {
+            margin-top: 10px;
+            font-size: 13px;
+            color: #6b7280;
+        }
+
+        .research-session-history {
+            margin-top: 20px;
+            border-top: 1px solid #f0f0f0;
+            padding-top: 16px;
+        }
+
+        .research-session-history-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #374151;
+            margin-bottom: 10px;
+        }
+
+        .research-session-history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 11px 0;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        .research-session-history-item:last-child {
+            border-bottom: none;
+        }
+
+        .research-session-history-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: #111827;
+        }
+
+        .research-session-history-meta {
+            font-size: 11px;
+            color: #9ca3af;
+            margin-top: 3px;
+        }
+
+        .research-session-view-button {
+            border: none;
+            background: transparent;
+            color: #6366f1;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .research-session-view-button:hover {
+            text-decoration: underline;
+        }
+
+        .research-session-findings-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.45);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .research-session-findings-modal {
+            width: min(850px, 100%);
+            max-height: 85vh;
+            overflow-y: auto;
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 24px;
+            box-sizing: border-box;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.20);
+        }
+
+        .research-session-findings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 15px;
+            margin-bottom: 18px;
+        }
+
+        .research-session-findings-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #111827;
+        }
+
+        .research-session-findings-date {
+            font-size: 12px;
+            color: #9ca3af;
+            margin-top: 4px;
+        }
+
+        .research-session-findings-close {
+            width: 32px;
+            height: 32px;
+            border: none;
+            border-radius: 8px;
+            background: #f3f4f6;
+            color: #374151;
+            cursor: pointer;
+            font-size: 18px;
+        }
+
+        .research-session-findings-content {
+            font-size: 14px;
+            line-height: 1.65;
+            color: #374151;
+            white-space: pre-wrap;
+        }
+
+        .research-session-findings-content h1,
+        .research-session-findings-content h2,
+        .research-session-findings-content h3 {
+            color: #111827;
+        }
+    `;
+
+    document.head.appendChild(style);
+}
+
+
+function getResearchSessionContainer() {
+    let container = document.getElementById("research-session-container");
+
+    if (container) {
+        return container;
+    }
+
+    const capsuleGrid = document.getElementById("capsule-grid");
+
+    if (!capsuleGrid || !capsuleGrid.parentElement) {
+        return null;
+    }
+
+    container = document.createElement("div");
+    container.id = "research-session-container";
+    container.className = "research-session-wrapper";
+
+    capsuleGrid.parentElement.insertBefore(container, capsuleGrid);
+
+    return container;
+}
+
+
+function renderResearchSessions() {
+    ensureResearchSessionStyles();
+
+    const container = getResearchSessionContainer();
+
+    if (!container) {
+        return;
+    }
 
     chrome.storage.local.get({
-        clips: [],
-        customCategories: defaultCategories,
-        categoryColors: defaultColors,
-        folders: ["General"],
-        activeFolder: "General"
-    }, (data) => {
-
-        const grid = document.getElementById("capsule-grid");
-        const clips = data.clips;
-
-        globalClips = clips;
-
-        const folders = data.folders;
-        const activeFolder = data.activeFolder;
-        const colors = data.categoryColors;
-
-        let categoriesDB = data.customCategories;
-
-        if (Array.isArray(categoriesDB)) {
-            categoriesDB = { "General": categoriesDB };
-        }
-
-        if (!categoriesDB[activeFolder]) {
-
-            categoriesDB[activeFolder] = [...defaultCategories];
-
-            chrome.storage.local.set({
-                customCategories: categoriesDB
-            });
-        }
-
-        const folderCategories = categoriesDB[activeFolder];
-
-        document.getElementById("active-workspace-name").innerText =
-            activeFolder;
-
-        const dropdownHtml = folders.map(f =>
-                `<div class="workspace-item folder-option" data-folder="${f}">📂 ${f}</div>`
-            ).join('') +
-
-            `<div class="workspace-item workspace-add" id="add-workspace-btn">+ Create New Workspace</div>`;
-
-        document.getElementById("workspace-dropdown").innerHTML =
-            dropdownHtml;
-
-        attachWorkspaceListeners();
-
-        // ==========================================
-        // WORKSPACE FILTERING
-        // ==========================================
-
-        const folderClips = clips.filter(
-            c => (c.folder || "General") === activeFolder
-        );
-
-        renderSidebar(folderClips, folderCategories, colors);
-
-        // ==========================================
-        // CATEGORY FILTERING
-        // ==========================================
-
-        const filteredClips = currentFilter === "All" ?
-            folderClips :
-            folderClips.filter(
-                clip =>
-                (clip.tag || folderCategories[0]) === currentFilter
-            );
-
-        document.getElementById("page-title").innerText =
-            currentFilter === "All" ?
-            `${activeFolder} Overview` :
-            `${currentFilter} (in ${activeFolder})`;
-
-        // ==========================================
-        // EMPTY WORKSPACE
-        // ==========================================
-
-        if (filteredClips.length === 0) {
-
-            grid.innerHTML = `
-                <div class="empty-state">
-                    <h3 style="color: #0f172a; margin-bottom: 8px; font-size: 22px;">
-                        Workspace is empty
-                    </h3>
-
-                    <p style="color: #64748b; font-size: 15px;">
-                        Right-click any text on the web to save it here.
-                    </p>
-                </div>
-            `;
-
-            return;
-        }
-
-        // ==========================================
-        // DATE GROUPING
-        // ==========================================
-
-        const dateGroups = {
-            today: [],
-            yesterday: [],
-            last7days: [],
-            older: []
-        };
-
-        filteredClips.forEach(clip => {
-
-            const group = getDateGroup(clip.timestamp);
-
-            if (dateGroups[group]) {
-                dateGroups[group].push(clip);
-            } else {
-                dateGroups.older.push(clip);
-            }
-
-        });
-
-        // ==========================================
-        // DATE GROUP CONFIGURATION
-        // ==========================================
-
-        const groupConfig = [
-
-            {
-                key: "today",
-                title: "Today",
-                subtitle: "Clips saved today",
-                icon: "☀️",
-                expanded: true
-            },
-
-            {
-                key: "yesterday",
-                title: "Yesterday",
-                subtitle: "Clips saved yesterday",
-                icon: "🌙",
-                expanded: true
-            },
-
-            {
-                key: "last7days",
-                title: "Last 7 Days",
-                subtitle: "Clips from the past week",
-                icon: "📅",
-                expanded: false
-            },
-
-            {
-                key: "older",
-                title: "Older",
-                subtitle: "Earlier saved clips",
-                icon: "🗂️",
-                expanded: false
-            }
-
-        ];
-
-        // ==========================================
-        // CARD RENDERER
-        // ==========================================
-
-        const renderCard = (clip, index) => {
-
-            const clipDate = clip.timestamp ?
-                new Date(clip.timestamp) :
-                new Date();
-
-            const year = isNaN(clipDate.getFullYear()) ?
-                new Date().getFullYear() :
-                clipDate.getFullYear();
-
-            const apaCitation =
-                `("${clip.text.slice(0, 40)}...", ${year}). Retrieved from ${clip.url}`;
-
-            const tag = clip.tag || folderCategories[0];
-
-            const themeColor =
-                colors[tag] ||
-                fallbackColors[index % fallbackColors.length];
-
-            const clipFolder = clip.folder || "General";
-
-            const tagOptions = folderCategories.map(cat =>
-                `<option value="${cat}" ${tag === cat ? 'selected' : ''}>
-                    ${cat}
-                </option>`
-            ).join('');
-
-            const folderOptions = folders.map(f =>
-                `<option value="${f}" ${clipFolder === f ? 'selected' : ''}>
-                    Move to: ${f}
-                </option>`
-            ).join('');
-
-            // ------------------------------------------
-            // CONFIDENCE DOT
-            // ------------------------------------------
-
-            const confidence = getConfidenceDisplay(clip);
-
-            return `
-                <div class="card"
-                     data-id="${clip.id}"
-                     style="--theme-color: ${themeColor};">
-
-                    <div class="card-header stop-propagation">
-
-                        <div style="display: flex; gap: 8px; align-items: center;">
-
-                            <select class="tag-select"
-                                    data-id="${clip.id}">
-                                ${tagOptions}
-                            </select>
-
-                            <select class="card-folder-select"
-                                    data-id="${clip.id}">
-                                ${folderOptions}
-                            </select>
-
-                        </div>
-
-                        <div style="display: flex; align-items: center; gap: 10px;">
-
-                            <span
-                                title="${confidence.tooltip}"
-                                aria-label="${confidence.tooltip}"
-                                style="
-                                    width: 9px;
-                                    height: 9px;
-                                    min-width: 9px;
-                                    border-radius: 50%;
-                                    background: ${confidence.color};
-                                    display: inline-block;
-                                    box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.10);
-                                "
-                            ></span>
-
-                            <span class="date">
-                                ${clip.timestamp || 'Just now'}
-                            </span>
-
-                        </div>
-
-                    </div>
-
-                    <div class="quote-box">
-                        "${clip.text}"
-                    </div>
-
-                    <div class="source"
-                         title="${clip.title}">
-                        📄 <span>${clip.title}</span>
-                    </div>
-
-                    <div class="card-actions stop-propagation">
-
-                        <button
-                            class="btn btn-apa copy-btn"
-                            data-citation="${apaCitation.replace(/"/g, '&quot;')}">
-                            📋 APA
-                        </button>
-
-                        <div class="btn-group">
-
-                            <button
-                                class="btn btn-share share-btn"
-                                data-id="${clip.id}">
-                                📤 Share
-                            </button>
-
-                            <button
-                                class="btn btn-teleport teleport-btn"
-                                data-id="${clip.id}">
-                                Jump ↗
-                            </button>
-
-                            <button
-                                class="btn btn-del delete-btn"
-                                data-id="${clip.id}"
-                                title="Delete clip">
-                                ✖
-                            </button>
-
-                        </div>
-
-                    </div>
-
-                </div>
-            `;
-        };
-
-        // ==========================================
-        // BUILD DATE-GROUPED DASHBOARD
-        // ==========================================
-
-        let groupedHtml = "";
-
-        groupConfig.forEach(config => {
-
-            const groupClips = dateGroups[config.key];
-
-            // Don't display empty date groups
-            if (groupClips.length === 0) {
-                return;
-            }
-
-            const sectionId = `date-section-${config.key}`;
-
-            groupedHtml += `
-                <section
-                    class="date-group"
-                    data-date-group="${config.key}"
-                    style="
-                        margin-bottom: 24px;
-                        border-radius: 16px;
-                    "
-                >
-
-                    <div
-                        class="date-group-header"
-                        data-target="${sectionId}"
-                        style="
-                            display: flex;
-                            align-items: center;
-                            justify-content: space-between;
-                            padding: 14px 16px;
-                            margin-bottom: ${config.expanded ? '14px' : '0'};
-                            background: #ffffff;
-                            border: 1px solid #e2e8f0;
-                            border-radius: 14px;
-                            cursor: pointer;
-                            user-select: none;
-                            transition: background 0.2s ease, border-color 0.2s ease;
-                        "
-                    >
-
-                        <div
-                            style="
-                                display: flex;
-                                align-items: center;
-                                gap: 12px;
-                            "
-                        >
-
-                            <div
-                                style="
-                                    width: 38px;
-                                    height: 38px;
-                                    display: flex;
-                                    align-items: center;
-                                    justify-content: center;
-                                    background: #f1f5f9;
-                                    border-radius: 10px;
-                                    font-size: 18px;
-                                "
-                            >
-                                ${config.icon}
-                            </div>
-
-                            <div>
-
-                                <div
-                                    style="
-                                        color: #0f172a;
-                                        font-size: 16px;
-                                        font-weight: 800;
-                                    "
-                                >
-                                    ${config.title}
-                                </div>
-
-                                <div
-                                    style="
-                                        color: #94a3b8;
-                                        font-size: 12px;
-                                        font-weight: 600;
-                                        margin-top: 2px;
-                                    "
-                                >
-                                    ${config.subtitle}
-                                </div>
-
-                            </div>
-
-                            <span
-                                style="
-                                    display: inline-flex;
-                                    align-items: center;
-                                    justify-content: center;
-                                    min-width: 28px;
-                                    height: 24px;
-                                    padding: 0 8px;
-                                    background: #f1f5f9;
-                                    color: #475569;
-                                    border-radius: 12px;
-                                    font-size: 11px;
-                                    font-weight: 800;
-                                "
-                            >
-                                ${groupClips.length}
-                            </span>
-
-                        </div>
-
-                        <span
-                            class="date-group-arrow"
-                            style="
-                                font-size: 14px;
-                                color: #64748b;
-                                transition: transform 0.2s ease;
-                                transform: rotate(${config.expanded ? '0deg' : '-90deg'});
-                            "
-                        >
-                            ▼
-                        </span>
-
-                    </div>
-
-                    <div
-                        id="${sectionId}"
-                        class="date-group-content"
-                        data-expanded="${config.expanded}"
-                        style="
-                            display: ${config.expanded ? 'grid' : 'none'};
-                            gap: 16px;
-                        "
-                    >
-                        ${groupClips.map((clip, index) =>
-                            renderCard(clip, index)
-                        ).join('')}
-                    </div>
-
-                </section>
-            `;
-        });
-
-        grid.innerHTML = groupedHtml;
-
-        // ==========================================
-        // DATE GROUP COLLAPSE / EXPAND
-        // ==========================================
-
-        document.querySelectorAll(".date-group-header").forEach(header => {
-
-            header.addEventListener("click", () => {
-
-                const targetId = header.dataset.target;
-                const content = document.getElementById(targetId);
-
-                if (!content) {
-                    return;
-                }
-
-                const arrow =
-                    header.querySelector(".date-group-arrow");
-
-                const isExpanded =
-                    content.dataset.expanded === "true";
-
-                if (isExpanded) {
-
-                    content.style.display = "none";
-                    content.dataset.expanded = "false";
-                    header.style.marginBottom = "0px";
-
-                    if (arrow) {
-                        arrow.style.transform = "rotate(-90deg)";
-                    }
-
-                } else {
-
-                    content.style.display = "grid";
-                    content.dataset.expanded = "true";
-                    header.style.marginBottom = "14px";
-
-                    if (arrow) {
-                        arrow.style.transform = "rotate(0deg)";
-                    }
-
-                }
-
-            });
-
-            // Small visual feedback on hover
-            header.addEventListener("mouseenter", () => {
-
-                header.style.background = "#f8fafc";
-                header.style.borderColor = "#cbd5e1";
-
-            });
-
-            header.addEventListener("mouseleave", () => {
-
-                header.style.background = "#ffffff";
-                header.style.borderColor = "#e2e8f0";
-
-            });
-
-        });
-
-        // ==========================================
-        // EXISTING CARD LISTENERS
-        // ==========================================
-
-        attachCardListeners(clips);
-
-    });
-
-}
-
-
-function renderSidebar(folderClips, folderCategories, colors) {
-
-    const sidebarList = document.getElementById("sidebar-filters");
-
-    const counts = { All: folderClips.length };
-
-    folderCategories.forEach(cat => counts[cat] = 0);
-
-    folderClips.forEach(clip => {
-
-        const tag = clip.tag || folderCategories[0];
-
-        if (counts[tag] !== undefined) {
-            counts[tag]++;
-        } else {
-            counts[tag] = 1;
-        }
-
-    });
-
-    let html = `
-        <li>
-            <button
-                class="filter-btn ${currentFilter === "All" ? "active" : ""}"
-                data-filter="All"
-                style="--primary: #0ea5e9;"
-            >
-                <span>All Capsules</span>
-                <span class="filter-count">${counts.All}</span>
-            </button>
-        </li>
-    `;
-
-    folderCategories.forEach((cat, index) => {
-
-        const catColor =
-            colors[cat] ||
-            fallbackColors[index % fallbackColors.length];
-
-        html += `
-            <li>
-                <div
-                    class="filter-btn ${currentFilter === cat ? "active" : ""}"
-                    style="--primary: ${catColor}; cursor: default;"
-                >
-
-                    <div
-                        class="cat-row"
-                        data-filter="${cat}"
-                        style="cursor: pointer;"
-                    >
-
-                        <input
-                            type="color"
-                            class="color-dot"
-                            data-cat="${cat}"
-                            value="${catColor}"
-                        >
-
-                        <span
-                            class="cat-text"
-                            data-old="${cat}"
-                        >
-                            ${cat}
-                        </span>
-
-                    </div>
-
-                    <span
-                        class="filter-count"
-                        style="margin-left: auto; margin-right: 8px;"
-                    >
-                        ${counts[cat]}
-                    </span>
-
-                    <button
-                        class="edit-cat-btn"
-                        data-target="${cat}"
-                        title="Rename"
-                    >
-                        ✏️
-                    </button>
-
-                </div>
-            </li>
-        `;
-    });
-
-    sidebarList.innerHTML = html;
-
-    attachSidebarListeners();
-}
-
-
-const workspaceBtn = document.getElementById("workspace-btn");
-const workspaceDropdown = document.getElementById("workspace-dropdown");
-
-workspaceBtn.addEventListener("click", (e) => {
-
-    e.stopPropagation();
-
-    workspaceDropdown.style.display =
-        workspaceDropdown.style.display === "flex" ?
-        "none" :
-        "flex";
-
-});
-
-document.addEventListener("click", () =>
-    workspaceDropdown.style.display = "none"
-);
-
-
-function attachWorkspaceListeners() {
-
-    document.querySelectorAll(".folder-option").forEach(item => {
-
-        item.addEventListener("click", (e) => {
-
-            currentFilter = "All";
-
-            chrome.storage.local.set({
-                    activeFolder: e.target.dataset.folder
-                },
-                () => renderVault()
-            );
-
-        });
-
-    });
-
-    document.getElementById("add-workspace-btn").addEventListener("click", () => {
-
-        const folderName = prompt(
-            "Name your new Workspace (e.g. Physics, Marketing):"
-        );
-
-        if (folderName && folderName.trim() !== "") {
-
-            const cleanName = folderName.trim();
-
-            chrome.storage.local.get({
-                    folders: ["General"],
-                    customCategories: {}
-                },
-                (res) => {
-
-                    if (!res.folders.includes(cleanName)) {
-
-                        const newFolders = [
-                            ...res.folders,
-                            cleanName
-                        ];
-
-                        const updatedCategories = {
-                            ...res.customCategories,
-                            [cleanName]: [...defaultCategories]
-                        };
-
-                        chrome.storage.local.set({
-                                folders: newFolders,
-                                activeFolder: cleanName,
-                                customCategories: updatedCategories
-                            },
-                            () => {
-
-                                currentFilter = "All";
-                                renderVault();
-
-                            }
-                        );
-
-                    } else {
-
-                        alert("Workspace already exists!");
-
-                    }
-
-                }
-            );
-
-        }
-
-    });
-
-}
-
-
-function attachSidebarListeners() {
-
-    document.querySelectorAll(".cat-row").forEach(row => {
-
-        row.addEventListener("click", (e) => {
-
-            if (
-                e.target.classList.contains("color-dot") ||
-                (
-                    e.target.classList.contains("cat-text") &&
-                    e.target.isContentEditable
-                )
-            ) {
-                return;
-            }
-
-            currentFilter = row.dataset.filter;
-
-            renderVault();
-
-        });
-
-    });
-
-    document.querySelectorAll(".color-dot").forEach(dot => {
-
-        dot.addEventListener("change", (e) => {
-
-            chrome.storage.local.get({
-                    categoryColors: defaultColors
-                },
-                (res) => {
-
-                    chrome.storage.local.set({
-                        categoryColors: {
-                            ...res.categoryColors,
-                            [e.target.dataset.cat]: e.target.value
-                        }
-                    });
-
-                }
-            );
-
-        });
-
-    });
-
-    document.querySelectorAll(".edit-cat-btn").forEach(btn => {
-
-        btn.addEventListener("click", (e) => {
-
-            const span = document.querySelector(
-                `span[data-old="${e.currentTarget.dataset.target}"]`
-            );
-
-            if (span) {
-
-                span.setAttribute(
-                    "contenteditable",
-                    "true"
-                );
-
-                span.focus();
-
-                document.execCommand(
-                    "selectAll",
-                    false,
-                    null
-                );
-
-                document.getSelection().collapseToEnd();
-
-            }
-
-        });
-
-    });
-
-    document.querySelectorAll(".cat-text").forEach(span => {
-
-        span.addEventListener("keydown", (e) => {
-
-            if (e.key === "Enter") {
-
-                e.preventDefault();
-                e.target.blur();
-
-            }
-
-        });
-
-        span.addEventListener("blur", (e) => {
-
-            e.target.removeAttribute("contenteditable");
-
-            const oldName = e.target.dataset.old;
-            const newName = e.target.innerText.trim();
-
-            if (newName && newName !== oldName) {
-
-                chrome.storage.local.get({
-                        clips: [],
-                        customCategories: {},
-                        categoryColors: defaultColors,
-                        activeFolder: "General"
-                    },
-                    (res) => {
-
-                        let categoriesDB = res.customCategories;
-                        const activeFolder = res.activeFolder;
-
-                        categoriesDB[activeFolder] =
-                            categoriesDB[activeFolder].map(
-                                c => c === oldName ? newName : c
-                            );
-
-                        const updatedColors = {
-                            ...res.categoryColors
-                        };
-
-                        updatedColors[newName] =
-                            updatedColors[oldName] ||
-                            fallbackColors[0];
-
-                        const updatedClips =
-                            res.clips.map(clip => {
-
-                                if (
-                                    (clip.folder || "General") === activeFolder &&
-                                    (clip.tag || defaultCategories[0]) === oldName
-                                ) {
-                                    clip.tag = newName;
-                                }
-
-                                return clip;
-
-                            });
-
-                        if (currentFilter === oldName) {
-                            currentFilter = newName;
-                        }
-
-                        chrome.storage.local.set({
-                            clips: updatedClips,
-                            customCategories: categoriesDB,
-                            categoryColors: updatedColors
-                        });
-
-                    }
-                );
-
-            } else {
-
-                e.target.innerText = oldName;
-
-            }
-
-        });
-
-    });
-
-}
-
-
-document.getElementById("add-new-cat").addEventListener("keydown", (e) => {
-
-    if (e.key === "Enter") {
-
-        e.preventDefault();
-
-        const newCat = e.target.value.trim();
-
-        if (!newCat) {
-            return;
-        }
-
-        chrome.storage.local.get({
-                customCategories: {},
-                categoryColors: defaultColors,
-                activeFolder: "General"
+                activeResearchSession: null,
+                researchSessions: []
             },
             (res) => {
+                const activeSession = res.activeResearchSession;
+                const sessions = Array.isArray(res.researchSessions) ?
+                    res.researchSessions : [];
 
-                let categoriesDB = res.customCategories;
-                const activeFolder = res.activeFolder;
-
-                if (!categoriesDB[activeFolder].includes(newCat)) {
-
-                    categoriesDB[activeFolder].push(newCat);
-
-                    const updatedColors = {
-                        ...res.categoryColors,
-                        [newCat]: fallbackColors[
-                            categoriesDB[activeFolder].length %
-                            fallbackColors.length
-                        ]
-                    };
-
-                    chrome.storage.local.set({
-                            customCategories: categoriesDB,
-                            categoryColors: updatedColors
+                chrome.storage.local.get({
+                            clips: []
                         },
-                        () => {
-                            e.target.value = "";
+                        (clipRes) => {
+                            const clips = Array.isArray(clipRes.clips) ?
+                                clipRes.clips : [];
+
+                            let html = "";
+
+                            if (activeSession) {
+                                const sessionClipCount = clips.filter(
+                                    clip =>
+                                    clip &&
+                                    clip.sessionId === activeSession.id
+                                ).length;
+
+                                html = `
+                            <div class="research-session-card active">
+                                <div class="research-session-top">
+                                    <div>
+                                        <div class="research-session-title">
+                                            Research Session
+                                        </div>
+
+                                        <div class="research-session-active-name">
+                                            ${escapeHtml(activeSession.name)}
+                                        </div>
+
+                                        <div class="research-session-status">
+                                            <span class="research-session-status-dot"></span>
+                                            Research session active
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="research-session-count">
+                                    ${sessionClipCount}
+                                    ${sessionClipCount === 1 ? "clip" : "clips"}
+                                    collected in this session
+                                </div>
+
+                                <div class="research-session-actions">
+                                    <button
+                                        id="end-research-session-btn"
+                                        class="research-session-button secondary"
+                                    >
+                                        End Session
+                                    </button>
+
+                                    <button
+                                        id="synthesize-research-session-btn"
+                                        class="research-session-button synthesize"
+                                    >
+                                        End &amp; Synthesize
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                            } else {
+                                html = `
+                            <div class="research-session-card">
+                                <div class="research-session-top">
+                                    <div>
+                                        <div class="research-session-title">
+                                            Research Sessions
+                                        </div>
+
+                                        <div class="research-session-description">
+                                            Start a focused research session.
+                                            Every clip you create during the
+                                            session will automatically belong
+                                            to it.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="research-session-actions">
+                                    <button
+                                        id="start-research-session-btn"
+                                        class="research-session-button primary"
+                                    >
+                                        + Start Research Session
+                                    </button>
+                                </div>
+                        `;
+
+                                if (sessions.length > 0) {
+                                    html += `
+                                <div class="research-session-history">
+                                    <div class="research-session-history-title">
+                                        Previous Research Sessions
+                                    </div>
+                            `;
+
+                                    sessions
+                                        .slice()
+                                        .reverse()
+                                        .forEach(session => {
+                                                const sessionClips = clips.filter(
+                                                    clip =>
+                                                    clip &&
+                                                    clip.sessionId === session.id
+                                                );
+
+                                                html += `
+                                        <div class="research-session-history-item">
+                                            <div>
+                                                <div class="research-session-history-name">
+                                                    ${escapeHtml(session.name)}
+                                                </div>
+
+                                                <div class="research-session-history-meta">
+                                                    ${formatSessionDate(session.endedAt || session.startedAt)}
+                                                    ·
+                                                    ${typeof session.clipCount === "number"
+                                                        ? session.clipCount
+                                                        : sessionClips.length}
+                                                    ${sessionClips.length === 1 ? "clip" : "clips"}
+                                                </div>
+                                            </div>
+
+                                            ${
+                                                session.synthesis
+                                                    ? `
+                                                        <button
+                                                            class="research-session-view-button"
+                                                            data-view-session-id="${escapeHtml(session.id)}"
+                                                        >
+                                                            View Findings
+                                                        </button>
+                                                    `
+                                                    : `
+                                                        <span
+                                                            style="
+                                                                font-size:12px;
+                                                                color:#9ca3af;
+                                                            "
+                                                        >
+                                                            No synthesis
+                                                        </span>
+                                                    `
+                                            }
+                                        </div>
+                                    `;
+                                });
+
+                            html += `</div>`;
                         }
-                    );
 
-                } else {
+                        html += `</div>`;
+                    }
 
-                    alert("Tag already exists in this workspace!");
+                    container.innerHTML = html;
 
+                    attachResearchSessionListeners();
                 }
-
-            }
-        );
-
-    }
-
-});
+            );
+        }
+    );
+}
 
 
-// ==========================================
-// ✨ ELABORATE MODAL AI LOGIC & HANDLERS
-// ==========================================
-
-const modalOverlay =
-    document.getElementById("elaborate-modal");
-
-const closeModalBtn =
-    document.getElementById("close-modal-btn");
-
-const modalBody =
-    document.getElementById("modal-body-content");
-
-const modalBox =
-    document.getElementById("modal-card-box");
-
-closeModalBtn.addEventListener("click", () => {
-    modalOverlay.style.display = "none";
-});
-
-modalOverlay.addEventListener("click", (e) => {
-
-    if (e.target === modalOverlay) {
-        modalOverlay.style.display = "none";
-    }
-
-});
-
-
-function openElaborateModal(clip, themeColor) {
-
-    modalBox.style.setProperty(
-        "--modal-theme",
-        themeColor
+function attachResearchSessionListeners() {
+    const startButton = document.getElementById(
+        "start-research-session-btn"
     );
 
-    modalBody.innerHTML = `
+    if (startButton) {
+        startButton.addEventListener("click", startResearchSession);
+    }
 
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+    const endButton = document.getElementById(
+        "end-research-session-btn"
+    );
 
-            <span
-                style="
-                    background: ${themeColor}15;
-                    color: ${themeColor};
-                    padding: 6px 14px;
-                    border-radius: 20px;
-                    font-size: 11px;
-                    font-weight: 800;
-                    text-transform: uppercase;
-                "
-            >
-                ${clip.tag || 'Evidence'}
-            </span>
+    if (endButton) {
+        endButton.addEventListener("click", endResearchSession);
+    }
 
-            <span
-                style="
-                    font-size: 12px;
-                    color: #94a3b8;
-                    font-weight: 700;
-                "
-            >
-                ${clip.timestamp || 'Just now'}
-            </span>
+    const synthesizeButton = document.getElementById(
+        "synthesize-research-session-btn"
+    );
 
+    if (synthesizeButton) {
+        synthesizeButton.addEventListener(
+            "click",
+            endAndSynthesizeResearchSession
+        );
+    }
+
+    document
+        .querySelectorAll("[data-view-session-id]")
+        .forEach(button => {
+            button.addEventListener("click", () => {
+                const sessionId =
+                    button.getAttribute("data-view-session-id");
+
+                viewResearchSession(sessionId);
+            });
+        });
+}
+
+
+/* =========================================================
+   START SESSION
+========================================================= */
+
+function startResearchSession() {
+    chrome.storage.local.get(
+        {
+            activeResearchSession: null
+        },
+        (res) => {
+            if (res.activeResearchSession) {
+                alert("A research session is already active.");
+                return;
+            }
+
+            const sessionName = prompt(
+                "Enter a name for your research session:"
+            );
+
+            if (sessionName === null) {
+                return;
+            }
+
+            const cleanName = sessionName.trim();
+
+            if (!cleanName) {
+                alert("Please enter a session name.");
+                return;
+            }
+
+            const session = {
+                id: createResearchSessionId(),
+                name: cleanName,
+                startedAt: Date.now()
+            };
+
+            chrome.storage.local.set(
+                {
+                    activeResearchSession: session
+                },
+                () => {
+                    chrome.storage.local.get(
+                        {
+                            researchSessions: []
+                        },
+                        (sessionRes) => {
+                            const sessions =
+                                Array.isArray(sessionRes.researchSessions)
+                                    ? sessionRes.researchSessions
+                                    : [];
+
+                            const sessionRecord = {
+                                id: session.id,
+                                name: session.name,
+                                startedAt: session.startedAt,
+                                endedAt: null,
+                                status: "active",
+                                synthesis: "",
+                                clipCount: 0
+                            };
+
+                            chrome.storage.local.set(
+                                {
+                                    researchSessions: [
+                                        ...sessions,
+                                        sessionRecord
+                                    ]
+                                },
+                                () => {
+                                    alert(
+                                        `Research session "${cleanName}" started.`
+                                    );
+
+                                    renderVault();
+                                }
+                            );
+                        }
+                    );
+                }
+            );
+        }
+    );
+}
+
+
+/* =========================================================
+   END SESSION WITHOUT SYNTHESIS
+========================================================= */
+
+function endResearchSession() {
+    chrome.storage.local.get(
+        {
+            activeResearchSession: null,
+            researchSessions: [],
+            clips: []
+        },
+        (res) => {
+            const activeSession = res.activeResearchSession;
+
+            if (!activeSession) {
+                return;
+            }
+
+            const sessionClips = res.clips.filter(
+                clip =>
+                    clip &&
+                    clip.sessionId === activeSession.id
+            );
+
+            const sessions = Array.isArray(res.researchSessions)
+                ? res.researchSessions
+                : [];
+
+            const updatedSessions = sessions.map(session => {
+                if (session.id === activeSession.id) {
+                    return {
+                        ...session,
+                        endedAt: Date.now(),
+                        status: "completed",
+                        clipCount: sessionClips.length
+                    };
+                }
+
+                return session;
+            });
+
+            chrome.storage.local.set(
+                {
+                    activeResearchSession: null,
+                    researchSessions: updatedSessions
+                },
+                () => {
+                    renderVault();
+                }
+            );
+        }
+    );
+}
+
+
+/* =========================================================
+   END & SYNTHESIZE
+========================================================= */
+
+async function endAndSynthesizeResearchSession() {
+    const button = document.getElementById(
+        "synthesize-research-session-btn"
+    );
+
+    if (button) {
+        button.disabled = true;
+        button.textContent = "Synthesizing...";
+    }
+
+    chrome.storage.local.get(
+        {
+            activeResearchSession: null,
+            clips: [],
+            researchSessions: []
+        },
+        async (res) => {
+            const activeSession = res.activeResearchSession;
+
+            if (!activeSession) {
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = "End & Synthesize";
+                }
+
+                return;
+            }
+
+            const sessionClips = Array.isArray(res.clips)
+                ? res.clips.filter(
+                    clip =>
+                        clip &&
+                        clip.sessionId === activeSession.id
+                )
+                : [];
+
+            if (sessionClips.length === 0) {
+                alert(
+                    "This research session has no clips yet. Create at least one clip before synthesizing."
+                );
+
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = "End & Synthesize";
+                }
+
+                return;
+            }
+
+            try {
+                const response = await fetch(
+                    "http://localhost:3000/api/session",
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            sessionName: activeSession.name,
+                            clips: sessionClips
+                        })
+                    }
+                );
+
+                if (!response.ok) {
+                    let errorMessage =
+                        "Research session synthesis failed.";
+
+                    try {
+                        const errorData =
+                            await response.json();
+
+                        if (
+                            errorData &&
+                            typeof errorData.error === "string"
+                        ) {
+                            errorMessage = errorData.error;
+                        }
+                    } catch (error) {
+                        // Keep default error message.
+                    }
+
+                    throw new Error(errorMessage);
+                }
+
+                const data = await response.json();
+
+                if (
+                    !data ||
+                    typeof data.result !== "string" ||
+                    !data.result.trim()
+                ) {
+                    throw new Error(
+                        "Gemini returned an empty research synthesis."
+                    );
+                }
+
+                const sessions = Array.isArray(res.researchSessions)
+                    ? res.researchSessions
+                    : [];
+
+                const updatedSessions = sessions.map(session => {
+                    if (session.id === activeSession.id) {
+                        return {
+                            ...session,
+                            endedAt: Date.now(),
+                            status: "completed",
+                            synthesis: data.result,
+                            clipCount: sessionClips.length
+                        };
+                    }
+
+                    return session;
+                });
+
+                chrome.storage.local.set(
+                    {
+                        activeResearchSession: null,
+                        researchSessions: updatedSessions
+                    },
+                    () => {
+                        renderVault();
+
+                        showResearchSessionFindings({
+                            ...activeSession,
+                            endedAt: Date.now(),
+                            status: "completed",
+                            synthesis: data.result,
+                            clipCount: sessionClips.length
+                        });
+                    }
+                );
+
+            } catch (error) {
+                console.error(
+                    "Context Capsule: Research session synthesis failed.",
+                    error
+                );
+
+                alert(
+                    error.message ||
+                    "Research session synthesis failed."
+                );
+
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = "End & Synthesize";
+                }
+            }
+        }
+    );
+}
+
+
+/* =========================================================
+   VIEW SESSION FINDINGS
+========================================================= */
+
+function viewResearchSession(sessionId) {
+    chrome.storage.local.get(
+        {
+            researchSessions: []
+        },
+        (res) => {
+            const sessions = Array.isArray(res.researchSessions)
+                ? res.researchSessions
+                : [];
+
+            const session = sessions.find(
+                item => item.id === sessionId
+            );
+
+            if (!session) {
+                alert("Research session could not be found.");
+                return;
+            }
+
+            showResearchSessionFindings(session);
+        }
+    );
+}
+
+
+function showResearchSessionFindings(session) {
+    ensureResearchSessionStyles();
+
+    const existing =
+        document.getElementById(
+            "research-session-findings-overlay"
+        );
+
+    if (existing) {
+        existing.remove();
+    }
+
+    const overlay = document.createElement("div");
+    overlay.id =
+        "research-session-findings-overlay";
+
+    overlay.className =
+        "research-session-findings-overlay";
+
+    overlay.innerHTML = `
+        <div class="research-session-findings-modal">
+            <div class="research-session-findings-header">
+                <div>
+                    <div class="research-session-findings-title">
+                        ${escapeHtml(session.name)}
+                    </div>
+
+                    <div class="research-session-findings-date">
+                        ${formatSessionDate(
+                            session.endedAt ||
+                            session.startedAt
+                        )}
+                        ·
+                        ${session.clipCount || 0}
+                        ${(session.clipCount || 0) === 1
+                            ? "clip"
+                            : "clips"}
+                    </div>
+                </div>
+
+                <button
+                    id="close-research-session-findings"
+                    class="research-session-findings-close"
+                >
+                    ×
+                </button>
+            </div>
+
+            <div class="research-session-findings-content">
+                ${
+                    session.synthesis
+                        ? escapeHtml(session.synthesis)
+                        : "No synthesis was generated for this session."
+                }
+            </div>
         </div>
-
-        <div
-            style="
-                font-size: 16px;
-                font-weight: 700;
-                color: #0f172a;
-                margin-bottom: 8px;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-            "
-        >
-            📄 ${clip.title}
-        </div>
-
-        <div class="modal-quote">
-            "${clip.text}"
-        </div>
-
-        <div
-            style="
-                font-size: 13px;
-                color: #64748b;
-                margin-bottom: 20px;
-                word-break: break-all;
-            "
-        >
-            <b>Source URL:</b>
-            <a
-                href="${clip.url}"
-                target="_blank"
-                style="
-                    color: var(--primary);
-                    text-decoration: none;
-                "
-            >
-                ${clip.url}
-            </a>
-        </div>
-
-        <!-- AI ACTION BUTTONS IN MODAL -->
-
-        <div class="modal-ai-row">
-
-            <button
-                class="btn-modal-ai"
-                id="modal-summarize-btn"
-                data-id="${clip.id}"
-            >
-                ✨ Summarize
-            </button>
-
-            <button
-                class="btn-modal-ai"
-                id="modal-explain-btn"
-                data-id="${clip.id}"
-            >
-                🧠 Explain More
-            </button>
-
-        </div>
-
-        <div
-            class="modal-ai-output"
-            id="modal-ai-output"
-        ></div>
-
     `;
 
-    modalOverlay.style.display = "flex";
+    document.body.appendChild(overlay);
+
+    const closeButton = document.getElementById(
+        "close-research-session-findings"
+    );
+
+    if (closeButton) {
+        closeButton.addEventListener("click", () => {
+            overlay.remove();
+        });
+    }
+
+    overlay.addEventListener("click", event => {
+        if (event.target === overlay) {
+            overlay.remove();
+        }
+    });
+}
+
+
+/* =========================================================
+   SIDEBAR
+========================================================= */
+
+function renderSidebar(
+    categories,
+    categoryColors,
+    folders,
+    activeFolder
+) {
+    const categoryList =
+        document.getElementById("category-list");
+
+    if (!categoryList) {
+        return;
+    }
+
+    categoryList.innerHTML = "";
+
+    categories.forEach(category => {
+        const item = document.createElement("div");
+
+        item.className =
+            "category-item" +
+            (currentFilter === category
+                ? " active"
+                : "");
+
+        item.dataset.category = category;
+
+        const color =
+            categoryColors[category] ||
+            defaultColors[category] ||
+            fallbackColors[
+                categories.indexOf(category) %
+                fallbackColors.length
+            ];
+
+        item.innerHTML = `
+            <span
+                style="
+                    width:8px;
+                    height:8px;
+                    border-radius:50%;
+                    background:${color};
+                    display:inline-block;
+                    margin-right:8px;
+                "
+            ></span>
+
+            <span>${escapeHtml(category)}</span>
+        `;
+
+        categoryList.appendChild(item);
+    });
+
+    if (folders && Array.isArray(folders)) {
+        const folderList =
+            document.getElementById("folder-list");
+
+        if (folderList) {
+            folderList.innerHTML = "";
+
+            folders.forEach(folder => {
+                const item =
+                    document.createElement("div");
+
+                item.className =
+                    "folder-item" +
+                    (activeFolder === folder
+                        ? " active"
+                        : "");
+
+                item.dataset.folder = folder;
+
+                item.textContent = folder;
+
+                folderList.appendChild(item);
+            });
+        }
+    }
+}
+
+
+/* =========================================================
+   WORKSPACE
+========================================================= */
+
+function attachWorkspaceListeners() {
+    const workspaceButton =
+        document.getElementById("workspace-button");
+
+    const workspaceDropdown =
+        document.getElementById("workspace-dropdown");
+
+    if (
+        workspaceButton &&
+        workspaceDropdown
+    ) {
+        workspaceButton.onclick = () => {
+            workspaceDropdown.classList.toggle("show");
+        };
+    }
+}
+
+
+/* =========================================================
+   SIDEBAR LISTENERS
+========================================================= */
+
+function attachSidebarListeners() {
+    document
+        .querySelectorAll(".category-item")
+        .forEach(item => {
+            item.addEventListener("click", () => {
+                currentFilter =
+                    item.dataset.category || "All";
+
+                renderVault();
+            });
+        });
 
     document
-        .getElementById("modal-summarize-btn")
-        .addEventListener(
-            "click",
-            (e) => executeModalAI(
-                clip,
-                'summarize',
-                e.target
-            )
+        .querySelectorAll(".folder-item")
+        .forEach(item => {
+            item.addEventListener("click", () => {
+                const folder =
+                    item.dataset.folder;
+
+                chrome.storage.local.set(
+                    {
+                        activeFolder: folder
+                    },
+                    () => {
+                        renderVault();
+                    }
+                );
+            });
+        });
+}
+
+
+/* =========================================================
+   ADD CATEGORY
+========================================================= */
+
+function attachAddCategoryListener() {
+    const input =
+        document.getElementById("new-category-input");
+
+    if (!input) {
+        return;
+    }
+
+    input.onkeydown = event => {
+        if (event.key !== "Enter") {
+            return;
+        }
+
+        const category =
+            input.value.trim();
+
+        if (!category) {
+            return;
+        }
+
+        chrome.storage.local.get(
+            {
+                customCategories: []
+            },
+            res => {
+                const categories =
+                    Array.isArray(
+                        res.customCategories
+                    )
+                        ? res.customCategories
+                        : [];
+
+                if (!categories.includes(category)) {
+                    categories.push(category);
+                }
+
+                chrome.storage.local.set(
+                    {
+                        customCategories: categories
+                    },
+                    () => {
+                        input.value = "";
+                        renderVault();
+                    }
+                );
+            }
+        );
+    };
+}
+
+
+/* =========================================================
+   ELABORATE MODAL
+========================================================= */
+
+function setupElaborateModal() {
+    const closeButton =
+        document.getElementById(
+            "close-modal-btn"
         );
 
-    document
-        .getElementById("modal-explain-btn")
-        .addEventListener(
-            "click",
-            (e) => executeModalAI(
-                clip,
-                'explain',
-                e.target
-            )
+    const modal =
+        document.getElementById(
+            "elaborate-modal"
         );
 
+    if (!closeButton || !modal) {
+        return;
+    }
+
+    closeButton.onclick = () => {
+        modal.style.display = "none";
+    };
+
+    modal.onclick = event => {
+        if (event.target === modal) {
+            modal.style.display = "none";
+        }
+    };
+}
+
+
+function openElaborateModal(clip) {
+    const modal =
+        document.getElementById(
+            "elaborate-modal"
+        );
+
+    const body =
+        document.getElementById(
+            "modal-body-content"
+        );
+
+    if (!modal || !body) {
+        return;
+    }
+
+    body.innerHTML = `
+        <div style="margin-bottom:18px;">
+            <div
+                style="
+                    font-size:12px;
+                    color:#6b7280;
+                    margin-bottom:6px;
+                "
+            >
+                SOURCE
+            </div>
+
+            <div
+                style="
+                    font-size:13px;
+                    font-weight:600;
+                    color:#111827;
+                "
+            >
+                ${escapeHtml(clip.title || "Untitled")}
+            </div>
+        </div>
+
+        <div style="margin-bottom:18px;">
+            <div
+                style="
+                    font-size:12px;
+                    color:#6b7280;
+                    margin-bottom:6px;
+                "
+            >
+                SELECTED TEXT
+            </div>
+
+            <div
+                style="
+                    font-size:14px;
+                    line-height:1.6;
+                    color:#374151;
+                "
+            >
+                ${escapeHtml(clip.text || "")}
+            </div>
+        </div>
+
+        <div style="margin-bottom:18px;">
+            <div
+                style="
+                    font-size:12px;
+                    color:#6b7280;
+                    margin-bottom:6px;
+                "
+            >
+                CONTEXT
+            </div>
+
+            <div
+                style="
+                    font-size:13px;
+                    line-height:1.6;
+                    color:#6b7280;
+                "
+            >
+                ${escapeHtml(clip.context || "No context available.")}
+            </div>
+        </div>
+
+        <div
+            style="
+                display:flex;
+                gap:8px;
+                flex-wrap:wrap;
+            "
+        >
+            <button
+                class="modal-ai-button"
+                data-action="summarize"
+            >
+                Summarize
+            </button>
+
+            <button
+                class="modal-ai-button"
+                data-action="explain"
+            >
+                Explain
+            </button>
+        </div>
+
+        <div
+            id="modal-ai-result"
+            style="
+                margin-top:18px;
+                font-size:14px;
+                line-height:1.6;
+                color:#374151;
+            "
+        ></div>
+    `;
+
+    modal.style.display = "flex";
+
+    body
+        .querySelectorAll(".modal-ai-button")
+        .forEach(button => {
+            button.addEventListener("click", () => {
+                executeModalAI(
+                    clip,
+                    button.dataset.action
+                );
+            });
+        });
 }
 
 
 async function executeModalAI(
     clip,
-    actionType,
-    btnElement
+    actionType
 ) {
+    const result =
+        document.getElementById(
+            "modal-ai-result"
+        );
 
-    const outDiv =
-        document.getElementById("modal-ai-output");
+    if (!result) {
+        return;
+    }
 
-    const originalText =
-        btnElement.innerText;
-
-    btnElement.innerText =
-        "⏳ Processing Deep Analysis...";
-
-    btnElement.disabled = true;
-
-    outDiv.style.display = "block";
-
-    outDiv.innerHTML = `
-        <span style="color:#64748b;">
-            ${
-                actionType === 'summarize'
-                    ? 'Synthesizing concise summary...'
-                    : 'Generating extensive research elaboration, conceptual context, and in-depth breakdown...'
-            }
-        </span>
-    `;
-
-    let formattedText = "";
+    result.textContent = "Thinking...";
 
     try {
-
         const response = await fetch(
-            "http://localhost:3000/api/ai", {
+            "http://localhost:3000/api/ai",
+            {
                 method: "POST",
-
                 headers: {
                     "Content-Type": "application/json"
                 },
-
                 body: JSON.stringify({
                     text: clip.text,
                     actionType: actionType
                 })
-
             }
         );
 
-        const data = await response.json();
-
         if (!response.ok) {
             throw new Error(
-                data.error || "AI request failed"
+                `AI API returned status ${response.status}`
             );
         }
 
-        formattedText = data.result;
+        const data =
+            await response.json();
 
-        formattedText = formattedText
-            .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
-            .replace(/\n/g, '<br>');
+        result.textContent =
+            data.result ||
+            data.response ||
+            "No response received.";
 
-    } catch (e) {
-
+    } catch (error) {
         console.error(
-            "AI request failed:",
-            e
+            "Context Capsule: AI request failed.",
+            error
         );
 
-        if (actionType === 'summarize') {
-
-            formattedText = `
-
-                • <b>Core Takeaway:</b>
-                This capsule contains important context extracted from the selected webpage.<br>
-
-                • <b>Contextual Baseline:</b>
-                This saved snippet can be used as structured evidence from
-                <i>${clip.title}</i>.
-
-            `;
-
-        } else {
-
-            formattedText = `
-
-                <b>🔍 Comprehensive Analytical Breakdown:</b>
-                <br><br>
-
-                1. <b>Contextual Foundation:</b>
-
-                The captured statement originates from
-                <i>${clip.title}</i>
-                and provides useful contextual information for further analysis.
-                <br><br>
-
-                2. <b>Thematic Significance:</b>
-
-                The selected snippet contains information that can help identify
-                important arguments, concepts, and supporting context.
-                <br><br>
-
-                3. <b>Implications & Application:</b>
-
-                This saved information can be used for further research,
-                comparison, cross-referencing, and analysis.
-                <br><br>
-
-                4. <b>Source Linkage:</b>
-
-                Directly anchored to
-
-                <a
-                    href="${clip.url}"
-                    target="_blank"
-                    style="color: #8b5cf6;"
-                >
-                    ${clip.url}
-                </a>
-
-                for source verification.
-
-            `;
-
-        }
-
+        result.textContent =
+            "AI request failed. Please make sure the server is running.";
     }
-
-    outDiv.innerHTML = `
-
-        <div
-            style="
-                display:flex;
-                justify-content:space-between;
-                align-items:center;
-                margin-bottom:12px;
-            "
-        >
-
-            <strong
-                style="
-                    color:#4c1d95;
-                    font-size:15px;
-                "
-            >
-                ${
-                    actionType === 'summarize'
-                        ? '✨ Summary'
-                        : '🧠 Exhaustive Detailed Elaboration'
-                }
-            </strong>
-
-            <button
-                id="close-modal-ai"
-                style="
-                    background:none;
-                    border:none;
-                    cursor:pointer;
-                    font-size:12px;
-                    color:#94a3b8;
-                "
-            >
-                ✖ Close
-            </button>
-
-        </div>
-
-        ${formattedText}
-
-    `;
-
-    document
-        .getElementById("close-modal-ai")
-        .addEventListener("click", () => {
-            outDiv.style.display = "none";
-        });
-
-    btnElement.innerText = originalText;
-    btnElement.disabled = false;
-
 }
 
 
-function attachCardListeners(allClips) {
+/* =========================================================
+   CARD LISTENERS
+========================================================= */
 
-    // Stop propagation via JS event listeners instead of inline onclick handlers
+function attachCardListeners(clips) {
     document
-        .querySelectorAll(".stop-propagation")
-        .forEach(el => {
-
-            el.addEventListener(
-                "click",
-                (e) => e.stopPropagation()
-            );
-
-        });
-
-
-    document
-        .querySelectorAll(".card")
+        .querySelectorAll(".clip-card")
         .forEach(card => {
+            const clipId =
+                Number(card.dataset.clipId);
 
-            card.addEventListener("click", () => {
+            const clip =
+                clips.find(item =>
+                    item.id === clipId
+                );
 
-                const clipId =
-                    Number(card.dataset.id);
+            if (!clip) {
+                return;
+            }
 
-                const clip =
-                    allClips.find(
-                        c => c.id === clipId
-                    );
-
-                if (clip) {
-
-                    const computedColor =
-                        getComputedStyle(card)
-                        .getPropertyValue(
-                            '--theme-color'
-                        )
-                        .trim() ||
-                        '#8b5cf6';
-
-                    openElaborateModal(
-                        clip,
-                        computedColor
-                    );
-
+            card.addEventListener("click", event => {
+                if (
+                    event.target.closest("button") ||
+                    event.target.closest("select") ||
+                    event.target.closest("a")
+                ) {
+                    return;
                 }
 
+                openElaborateModal(clip);
             });
-
         });
 
 
     document
-        .querySelectorAll(".tag-select")
+        .querySelectorAll(".clip-tag-select")
         .forEach(select => {
-
-            select.addEventListener(
-                "change",
-                (e) => {
-
-                    chrome.storage.local.get({ clips: [] },
-                        (res) => {
-
-                            const updatedClips =
-                                res.clips.map(clip => {
-
-                                    if (
-                                        clip.id ===
-                                        Number(
-                                            e.target.dataset.id
-                                        )
-                                    ) {
-                                        clip.tag =
-                                            e.target.value;
-                                    }
-
-                                    return clip;
-
-                                });
-
-                            chrome.storage.local.set({
-                                clips: updatedClips
-                            });
-
-                        }
+            select.addEventListener("change", event => {
+                const clipId =
+                    Number(
+                        event.target.dataset.clipId
                     );
 
-                }
-            );
+                const tag =
+                    event.target.value;
 
+                chrome.storage.local.get(
+                    {
+                        clips: []
+                    },
+                    res => {
+                        const updated =
+                            res.clips.map(clip => {
+                                if (
+                                    clip.id === clipId
+                                ) {
+                                    return {
+                                        ...clip,
+                                        tag: tag
+                                    };
+                                }
+
+                                return clip;
+                            });
+
+                        chrome.storage.local.set({
+                            clips: updated
+                        });
+                    }
+                );
+            });
         });
 
 
     document
-        .querySelectorAll(".card-folder-select")
+        .querySelectorAll(".clip-folder-select")
         .forEach(select => {
-
-            select.addEventListener(
-                "change",
-                (e) => {
-
-                    chrome.storage.local.get({ clips: [] },
-                        (res) => {
-
-                            const updatedClips =
-                                res.clips.map(clip => {
-
-                                    if (
-                                        clip.id ===
-                                        Number(
-                                            e.target.dataset.id
-                                        )
-                                    ) {
-                                        clip.folder =
-                                            e.target.value;
-                                    }
-
-                                    return clip;
-
-                                });
-
-                            chrome.storage.local.set({
-                                clips: updatedClips
-                            });
-
-                        }
+            select.addEventListener("change", event => {
+                const clipId =
+                    Number(
+                        event.target.dataset.clipId
                     );
 
-                }
-            );
+                const folder =
+                    event.target.value;
 
+                chrome.storage.local.get(
+                    {
+                        clips: []
+                    },
+                    res => {
+                        const updated =
+                            res.clips.map(clip => {
+                                if (
+                                    clip.id === clipId
+                                ) {
+                                    return {
+                                        ...clip,
+                                        folder: folder
+                                    };
+                                }
+
+                                return clip;
+                            });
+
+                        chrome.storage.local.set({
+                            clips: updated
+                        });
+                    }
+                );
+            });
         });
 
 
     document
         .querySelectorAll(".teleport-btn")
-        .forEach(btn => {
+        .forEach(button => {
+            button.addEventListener("click", event => {
+                event.stopPropagation();
 
-            btn.addEventListener(
-                "click",
-                (e) => {
+                const clipId =
+                    Number(
+                        button.dataset.clipId
+                    );
 
-                    const clip =
-                        allClips.find(
-                            c =>
-                            c.id ===
-                            Number(
-                                e.target.dataset.id
-                            )
-                        );
+                const clip =
+                    clips.find(item =>
+                        item.id === clipId
+                    );
 
-                    if (clip) {
-
-                        chrome.runtime.sendMessage({
-                            action: "teleport",
-                            url: clip.url,
-                            text: clip.text
-                        });
-
-                    }
-
+                if (!clip) {
+                    return;
                 }
-            );
 
+                chrome.runtime.sendMessage({
+                    action: "teleport",
+                    url: clip.url,
+                    text: clip.text
+                });
+            });
         });
 
 
     document
         .querySelectorAll(".share-btn")
-        .forEach(btn => {
+        .forEach(button => {
+            button.addEventListener("click", async event => {
+                event.stopPropagation();
 
-            btn.addEventListener(
-                "click",
-                async(e) => {
+                const clipId =
+                    Number(
+                        button.dataset.clipId
+                    );
 
-                    const clip =
-                        allClips.find(
-                            c =>
-                            c.id ===
-                            Number(
-                                e.target.dataset.id
-                            )
-                        );
+                const clip =
+                    clips.find(item =>
+                        item.id === clipId
+                    );
 
-                    if (!clip) {
-                        return;
-                    }
-
-                    const shareText =
-                        `"${clip.text}"\n\n- Captured from: ${clip.title}\n${clip.url}`;
-
-                    if (navigator.share) {
-
-                        try {
-
-                            await navigator.share({
-                                title: 'Context Capsule',
-                                text: shareText
-                            });
-
-                        } catch (err) {}
-
-                    } else {
-
-                        navigator.clipboard.writeText(
-                            shareText
-                        );
-
-                        e.target.innerText =
-                            "✅ Copied";
-
-                        setTimeout(
-                            () =>
-                            e.target.innerText =
-                            "📤 Share",
-                            2000
-                        );
-
-                    }
-
+                if (!clip) {
+                    return;
                 }
-            );
 
+                const shareText =
+                    `"${clip.text}"\n\n${clip.title}\n${clip.url}`;
+
+                try {
+                    await navigator.clipboard.writeText(
+                        shareText
+                    );
+
+                    alert("Clip copied for sharing.");
+                } catch (error) {
+                    console.error(error);
+                }
+            });
         });
 
 
     document
-        .querySelectorAll(".copy-btn")
-        .forEach(btn => {
+        .querySelectorAll(".apa-btn")
+        .forEach(button => {
+            button.addEventListener("click", event => {
+                event.stopPropagation();
 
-            btn.addEventListener(
-                "click",
-                (e) => {
-
-                    navigator.clipboard.writeText(
-                        e.target.dataset.citation
+                const clipId =
+                    Number(
+                        button.dataset.clipId
                     );
 
-                    e.target.innerHTML =
-                        "✅ Copied!";
+                const clip =
+                    clips.find(item =>
+                        item.id === clipId
+                    );
 
-                    e.target.style.background =
-                        "#dcfce7";
-
-                    e.target.style.color =
-                        "#166534";
-
-                    setTimeout(() => {
-
-                        e.target.innerHTML =
-                            "📋 APA";
-
-                        e.target.style.background =
-                            "";
-
-                        e.target.style.color =
-                            "";
-
-                    }, 1500);
-
+                if (!clip) {
+                    return;
                 }
-            );
 
+                const date =
+                    new Date(
+                        clip.timestamp
+                    );
+
+                const year =
+                    isNaN(date.getTime())
+                        ? "n.d."
+                        : date.getFullYear();
+
+                const citation =
+                    `${clip.title || "Untitled"}. (${year}). ${clip.url}`;
+
+                navigator.clipboard
+                    .writeText(citation)
+                    .then(() => {
+                        alert(
+                            "APA citation copied."
+                        );
+                    })
+                    .catch(error => {
+                        console.error(error);
+                    });
+            });
         });
 
 
     document
         .querySelectorAll(".delete-btn")
-        .forEach(btn => {
+        .forEach(button => {
+            button.addEventListener("click", event => {
+                event.stopPropagation();
 
-            btn.addEventListener(
-                "click",
-                (e) => {
+                const clipId =
+                    Number(
+                        button.dataset.clipId
+                    );
 
-                    if (confirm("Delete this capsule?")) {
+                chrome.storage.local.get(
+                    {
+                        clips: []
+                    },
+                    res => {
+                        const updated =
+                            res.clips.filter(
+                                clip =>
+                                    clip.id !== clipId
+                            );
 
-                        chrome.storage.local.get({ clips: [] },
-                            (res) => {
-
-                                chrome.storage.local.set({
-                                    clips: res.clips.filter(
-                                        clip =>
-                                        clip.id !==
-                                        Number(
-                                            e.target.dataset.id
-                                        )
-                                    )
-                                });
-
+                        chrome.storage.local.set(
+                            {
+                                clips: updated
                             }
                         );
-
                     }
-
-                }
-            );
-
+                );
+            });
         });
-
 }
 
 
-renderVault();
+/* =========================================================
+   RENDER VAULT
+========================================================= */
 
+function renderVault() {
+    chrome.storage.local.get(
+        {
+            clips: [],
+            customCategories: [],
+            categoryColors: {},
+            folders: [],
+            activeFolder: "All"
+        },
+        res => {
+            const clips =
+                Array.isArray(res.clips)
+                    ? res.clips
+                    : [];
+
+            globalClips = clips;
+
+            const customCategories =
+                Array.isArray(
+                    res.customCategories
+                )
+                    ? res.customCategories
+                    : [];
+
+            const categoryColors =
+                res.categoryColors || {};
+
+            const folders =
+                Array.isArray(res.folders)
+                    ? res.folders
+                    : [];
+
+            const activeFolder =
+                res.activeFolder || "All";
+
+            const categories = [
+                "All",
+                ...defaultCategories,
+                ...customCategories.filter(
+                    category =>
+                        !defaultCategories.includes(
+                            category
+                        )
+                )
+            ];
+
+
+            /* Workspace */
+
+            const workspaceTitle =
+                document.getElementById(
+                    "workspace-title"
+                );
+
+            if (workspaceTitle) {
+                workspaceTitle.textContent =
+                    activeFolder === "All"
+                        ? "All Clips"
+                        : activeFolder;
+            }
+
+
+            /* Sidebar */
+
+            renderSidebar(
+                categories,
+                categoryColors,
+                folders,
+                activeFolder
+            );
+
+
+            /* Filtering */
+
+            let filteredClips =
+                clips.slice();
+
+            if (currentFilter !== "All") {
+                filteredClips =
+                    filteredClips.filter(
+                        clip =>
+                            clip.tag ===
+                            currentFilter
+                    );
+            }
+
+            if (
+                activeFolder &&
+                activeFolder !== "All"
+            ) {
+                filteredClips =
+                    filteredClips.filter(
+                        clip =>
+                            clip.folder ===
+                            activeFolder
+                    );
+            }
+
+
+            /* Main title */
+
+            const pageTitle =
+                document.getElementById(
+                    "page-title"
+                );
+
+            if (pageTitle) {
+                pageTitle.textContent =
+                    currentFilter === "All"
+                        ? "All Clips"
+                        : currentFilter;
+            }
+
+
+            /* Capsule grid */
+
+            const grid =
+                document.getElementById(
+                    "capsule-grid"
+                );
+
+            if (!grid) {
+                renderResearchSessions();
+                return;
+            }
+
+
+            if (filteredClips.length === 0) {
+                grid.innerHTML = `
+                    <div
+                        style="
+                            grid-column:1/-1;
+                            padding:50px;
+                            text-align:center;
+                            color:#9ca3af;
+                        "
+                    >
+                        No clips found.
+                    </div>
+                `;
+
+                attachSidebarListeners();
+                attachWorkspaceListeners();
+                attachAddCategoryListener();
+                setupElaborateModal();
+                renderResearchSessions();
+
+                return;
+            }
+
+
+            /* Date grouping */
+
+            const grouped = {
+                Today: [],
+                Yesterday: [],
+                "Last 7 Days": [],
+                Older: []
+            };
+
+            filteredClips.forEach(clip => {
+                const group =
+                    getDateGroup(
+                        clip.timestamp
+                    );
+
+                if (!grouped[group]) {
+                    grouped[group] = [];
+                }
+
+                grouped[group].push(clip);
+            });
+
+
+            const groupConfig = [
+                {
+                    name: "Today",
+                    expanded: true
+                },
+                {
+                    name: "Yesterday",
+                    expanded: true
+                },
+                {
+                    name: "Last 7 Days",
+                    expanded: false
+                },
+                {
+                    name: "Older",
+                    expanded: false
+                }
+            ];
+
+
+            let html = "";
+
+
+            groupConfig.forEach(group => {
+                const groupClips =
+                    grouped[group.name] || [];
+
+                if (groupClips.length === 0) {
+                    return;
+                }
+
+                html += `
+                    <div
+                        class="date-group"
+                        data-group="${escapeHtml(group.name)}"
+                        style="
+                            grid-column:1/-1;
+                            margin-bottom:18px;
+                        "
+                    >
+                        <div
+                            class="date-group-header"
+                            style="
+                                display:flex;
+                                align-items:center;
+                                gap:8px;
+                                cursor:pointer;
+                                margin-bottom:12px;
+                                user-select:none;
+                            "
+                        >
+                            <span
+                                class="date-group-arrow"
+                                style="
+                                    display:inline-block;
+                                    transition:transform .2s;
+                                    transform:rotate(${group.expanded ? "90deg" : "0deg"});
+                                "
+                            >
+                                ›
+                            </span>
+
+                            <span
+                                style="
+                                    font-size:13px;
+                                    font-weight:700;
+                                    color:#6b7280;
+                                "
+                            >
+                                ${escapeHtml(group.name)}
+                            </span>
+
+                            <span
+                                style="
+                                    font-size:11px;
+                                    color:#9ca3af;
+                                "
+                            >
+                                ${groupClips.length}
+                            </span>
+                        </div>
+
+                        <div
+                            class="date-group-content"
+                            style="
+                                display:${group.expanded ? "grid" : "none"};
+                                grid-template-columns:repeat(auto-fill,minmax(280px,1fr));
+                                gap:16px;
+                            "
+                        >
+                `;
+
+
+                groupClips.forEach(clip => {
+                    const confidence =
+                        getConfidenceDisplay(
+                            clip
+                        );
+
+                    const tag =
+                        clip.tag ||
+                        "Evidence";
+
+                    const folder =
+                        clip.folder ||
+                        "No folder";
+
+                    html += `
+                        <div
+                            class="clip-card"
+                            data-clip-id="${clip.id}"
+                            style="
+                                position:relative;
+                                background:#ffffff;
+                                border:1px solid #e5e7eb;
+                                border-radius:14px;
+                                padding:18px;
+                                cursor:pointer;
+                                box-sizing:border-box;
+                            "
+                        >
+
+                            <div
+                                style="
+                                    display:flex;
+                                    justify-content:space-between;
+                                    align-items:flex-start;
+                                    gap:10px;
+                                    margin-bottom:10px;
+                                "
+                            >
+                                <div
+                                    style="
+                                        font-size:12px;
+                                        font-weight:600;
+                                        color:#6b7280;
+                                        overflow:hidden;
+                                        text-overflow:ellipsis;
+                                        white-space:nowrap;
+                                    "
+                                    title="${escapeHtml(clip.title || "")}"
+                                >
+                                    ${escapeHtml(
+                                        clip.title ||
+                                        "Untitled"
+                                    )}
+                                </div>
+
+                                <span
+                                    title="${escapeHtml(confidence.tooltip)}"
+                                    style="
+                                        width:9px;
+                                        height:9px;
+                                        min-width:9px;
+                                        border-radius:50%;
+                                        background:${confidence.color};
+                                        display:inline-block;
+                                    "
+                                ></span>
+                            </div>
+
+
+                            <div
+                                style="
+                                    font-size:14px;
+                                    line-height:1.55;
+                                    color:#111827;
+                                    margin-bottom:12px;
+                                "
+                            >
+                                ${escapeHtml(
+                                    clip.text || ""
+                                )}
+                            </div>
+
+
+                            <div
+                                style="
+                                    font-size:12px;
+                                    line-height:1.5;
+                                    color:#6b7280;
+                                    margin-bottom:14px;
+                                "
+                            >
+                                ${escapeHtml(
+                                    clip.context ||
+                                    "No surrounding context available."
+                                )}
+                            </div>
+
+
+                            <div
+                                style="
+                                    display:flex;
+                                    gap:7px;
+                                    flex-wrap:wrap;
+                                    margin-bottom:12px;
+                                "
+                            >
+                                <select
+                                    class="clip-tag-select"
+                                    data-clip-id="${clip.id}"
+                                    style="
+                                        border:1px solid #e5e7eb;
+                                        border-radius:7px;
+                                        padding:5px 7px;
+                                        font-size:11px;
+                                        background:#ffffff;
+                                    "
+                                >
+                                    ${categories
+                                        .filter(
+                                            category =>
+                                                category !==
+                                                "All"
+                                        )
+                                        .map(
+                                            category =>
+                                                `
+                                                <option
+                                                    value="${escapeHtml(category)}"
+                                                    ${tag === category ? "selected" : ""}
+                                                >
+                                                    ${escapeHtml(category)}
+                                                </option>
+                                                `
+                                        )
+                                        .join("")}
+                                </select>
+
+                                ${
+                                    folders.length > 0
+                                        ? `
+                                            <select
+                                                class="clip-folder-select"
+                                                data-clip-id="${clip.id}"
+                                                style="
+                                                    border:1px solid #e5e7eb;
+                                                    border-radius:7px;
+                                                    padding:5px 7px;
+                                                    font-size:11px;
+                                                    background:#ffffff;
+                                                "
+                                            >
+                                                <option value="">
+                                                    No folder
+                                                </option>
+
+                                                ${folders
+                                                    .map(
+                                                        folderName =>
+                                                            `
+                                                            <option
+                                                                value="${escapeHtml(folderName)}"
+                                                                ${folder === folderName ? "selected" : ""}
+                                                            >
+                                                                ${escapeHtml(folderName)}
+                                                            </option>
+                                                            `
+                                                    )
+                                                    .join("")}
+                                            </select>
+                                        `
+                                        : ""
+                                }
+                            </div>
+
+
+                            <div
+                                style="
+                                    display:flex;
+                                    justify-content:space-between;
+                                    align-items:center;
+                                    gap:8px;
+                                "
+                            >
+                                <div
+                                    style="
+                                        display:flex;
+                                        gap:6px;
+                                    "
+                                >
+                                    <button
+                                        class="teleport-btn"
+                                        data-clip-id="${clip.id}"
+                                        title="Jump to original source"
+                                        style="
+                                            border:none;
+                                            background:#f3f4f6;
+                                            border-radius:7px;
+                                            padding:6px 9px;
+                                            cursor:pointer;
+                                            font-size:11px;
+                                        "
+                                    >
+                                        Jump
+                                    </button>
+
+                                    <button
+                                        class="share-btn"
+                                        data-clip-id="${clip.id}"
+                                        title="Share clip"
+                                        style="
+                                            border:none;
+                                            background:#f3f4f6;
+                                            border-radius:7px;
+                                            padding:6px 9px;
+                                            cursor:pointer;
+                                            font-size:11px;
+                                        "
+                                    >
+                                        Share
+                                    </button>
+
+                                    <button
+                                        class="apa-btn"
+                                        data-clip-id="${clip.id}"
+                                        title="Copy APA citation"
+                                        style="
+                                            border:none;
+                                            background:#f3f4f6;
+                                            border-radius:7px;
+                                            padding:6px 9px;
+                                            cursor:pointer;
+                                            font-size:11px;
+                                        "
+                                    >
+                                        APA
+                                    </button>
+                                </div>
+
+                                <button
+                                    class="delete-btn"
+                                    data-clip-id="${clip.id}"
+                                    title="Delete clip"
+                                    style="
+                                        border:none;
+                                        background:#fee2e2;
+                                        color:#dc2626;
+                                        border-radius:7px;
+                                        padding:6px 9px;
+                                        cursor:pointer;
+                                        font-size:11px;
+                                    "
+                                >
+                                    Delete
+                                </button>
+                            </div>
+
+                        </div>
+                    `;
+                });
+
+
+                html += `
+                        </div>
+                    </div>
+                `;
+            });
+
+
+            grid.innerHTML = html;
+
+
+            /* Date group collapse / expand */
+
+            document
+                .querySelectorAll(".date-group-header")
+                .forEach(header => {
+                    header.addEventListener(
+                        "click",
+                        () => {
+                            const group =
+                                header.closest(
+                                    ".date-group"
+                                );
+
+                            if (!group) {
+                                return;
+                            }
+
+                            const content =
+                                group.querySelector(
+                                    ".date-group-content"
+                                );
+
+                            const arrow =
+                                group.querySelector(
+                                    ".date-group-arrow"
+                                );
+
+                            if (!content) {
+                                return;
+                            }
+
+                            const isOpen =
+                                content.style.display !==
+                                "none";
+
+                            content.style.display =
+                                isOpen
+                                    ? "none"
+                                    : "grid";
+
+                            if (arrow) {
+                                arrow.style.transform =
+                                    isOpen
+                                        ? "rotate(0deg)"
+                                        : "rotate(90deg)";
+                            }
+                        }
+                    );
+                });
+
+
+            attachCardListeners(clips);
+            attachSidebarListeners();
+            attachWorkspaceListeners();
+            attachAddCategoryListener();
+            setupElaborateModal();
+
+            renderResearchSessions();
+        }
+    );
+}
+
+
+/* =========================================================
+   STORAGE CHANGES
+========================================================= */
 
 chrome.storage.onChanged.addListener(
-    (changes, namespace) => {
-
-        if (
-            namespace === 'local' &&
-            (
-                changes.clips ||
-                changes.customCategories ||
-                changes.categoryColors ||
-                changes.folders ||
-                changes.activeFolder
-            )
-        ) {
-
-            renderVault();
-
+    (changes, areaName) => {
+        if (areaName !== "local") {
+            return;
         }
 
+        if (
+            changes.clips ||
+            changes.customCategories ||
+            changes.categoryColors ||
+            changes.folders ||
+            changes.activeFolder ||
+            changes.activeResearchSession ||
+            changes.researchSessions
+        ) {
+            renderVault();
+        }
+    }
+);
+
+
+/* =========================================================
+   INITIAL LOAD
+========================================================= */
+
+document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+        renderVault();
     }
 );
