@@ -5,6 +5,46 @@ const fallbackColors = ["#f59e0b", "#14b8a6", "#ec4899", "#6366f1"];
 
 let globalClips = [];
 
+function getDateGroup(timestamp) {
+    const date = timestamp ? new Date(timestamp) : new Date();
+
+    if (isNaN(date.getTime())) {
+        return "older";
+    }
+
+    const now = new Date();
+
+    // Remove the time portion so we compare calendar dates only
+    const today = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate()
+    );
+
+    const clipDay = new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate()
+    );
+
+    const difference = today - clipDay;
+    const oneDay = 24 * 60 * 60 * 1000;
+
+    if (difference === 0) {
+        return "today";
+    }
+
+    if (difference === oneDay) {
+        return "yesterday";
+    }
+
+    if (difference > oneDay && difference <= 7 * oneDay) {
+        return "last7days";
+    }
+
+    return "older";
+}
+
 function renderVault() {
     chrome.storage.local.get({
         clips: [],
@@ -15,77 +55,459 @@ function renderVault() {
     }, (data) => {
         const grid = document.getElementById("capsule-grid");
         const clips = data.clips;
+
         globalClips = clips;
+
         const folders = data.folders;
         const activeFolder = data.activeFolder;
         const colors = data.categoryColors;
 
         let categoriesDB = data.customCategories;
+
         if (Array.isArray(categoriesDB)) {
             categoriesDB = { "General": categoriesDB };
         }
+
         if (!categoriesDB[activeFolder]) {
             categoriesDB[activeFolder] = [...defaultCategories];
-            chrome.storage.local.set({ customCategories: categoriesDB });
+
+            chrome.storage.local.set({
+                customCategories: categoriesDB
+            });
         }
+
         const folderCategories = categoriesDB[activeFolder];
 
         document.getElementById("active-workspace-name").innerText = activeFolder;
+
         const dropdownHtml = folders.map(f =>
-            `<div class="workspace-item folder-option" data-folder="${f}">📂 ${f}</div>`
-        ).join('') + `<div class="workspace-item workspace-add" id="add-workspace-btn">+ Create New Workspace</div>`;
+                `<div class="workspace-item folder-option" data-folder="${f}">📂 ${f}</div>`
+            ).join('') +
+            `<div class="workspace-item workspace-add" id="add-workspace-btn">+ Create New Workspace</div>`;
+
         document.getElementById("workspace-dropdown").innerHTML = dropdownHtml;
+
         attachWorkspaceListeners();
 
-        const folderClips = clips.filter(c => (c.folder || "General") === activeFolder);
+        // ==========================================
+        // WORKSPACE FILTERING
+        // ==========================================
+
+        const folderClips = clips.filter(
+            c => (c.folder || "General") === activeFolder
+        );
+
         renderSidebar(folderClips, folderCategories, colors);
+
+        // ==========================================
+        // CATEGORY FILTERING
+        // ==========================================
 
         const filteredClips = currentFilter === "All" ?
             folderClips :
-            folderClips.filter(clip => (clip.tag || folderCategories[0]) === currentFilter);
+            folderClips.filter(
+                clip => (clip.tag || folderCategories[0]) === currentFilter
+            );
 
-        document.getElementById("page-title").innerText = currentFilter === "All" ? `${activeFolder} Overview` : `${currentFilter} (in ${activeFolder})`;
+        document.getElementById("page-title").innerText =
+            currentFilter === "All" ?
+            `${activeFolder} Overview` :
+            `${currentFilter} (in ${activeFolder})`;
+
+        // ==========================================
+        // EMPTY WORKSPACE
+        // ==========================================
 
         if (filteredClips.length === 0) {
-            grid.innerHTML = `<div class="empty-state"><h3 style="color: #0f172a; margin-bottom: 8px; font-size: 22px;">Workspace is empty</h3><p style="color: #64748b; font-size: 15px;">Right-click any text on the web to save it here.</p></div>`;
+            grid.innerHTML = `
+                <div class="empty-state">
+                    <h3 style="color: #0f172a; margin-bottom: 8px; font-size: 22px;">
+                        Workspace is empty
+                    </h3>
+
+                    <p style="color: #64748b; font-size: 15px;">
+                        Right-click any text on the web to save it here.
+                    </p>
+                </div>
+            `;
+
             return;
         }
 
-        grid.innerHTML = filteredClips.map((clip, index) => {
-            const clipDate = clip.timestamp ? new Date(clip.timestamp) : new Date();
-            const year = isNaN(clipDate.getFullYear()) ? new Date().getFullYear() : clipDate.getFullYear();
-            const apaCitation = `("${clip.text.slice(0, 40)}...", ${year}). Retrieved from ${clip.url}`;
+        // ==========================================
+        // DATE GROUPING
+        // ==========================================
+
+        const dateGroups = {
+            today: [],
+            yesterday: [],
+            last7days: [],
+            older: []
+        };
+
+        filteredClips.forEach(clip => {
+            const group = getDateGroup(clip.timestamp);
+
+            if (dateGroups[group]) {
+                dateGroups[group].push(clip);
+            } else {
+                dateGroups.older.push(clip);
+            }
+        });
+
+        // ==========================================
+        // DATE GROUP CONFIGURATION
+        // ==========================================
+
+        const groupConfig = [{
+                key: "today",
+                title: "Today",
+                subtitle: "Clips saved today",
+                icon: "☀️",
+                expanded: true
+            },
+            {
+                key: "yesterday",
+                title: "Yesterday",
+                subtitle: "Clips saved yesterday",
+                icon: "🌙",
+                expanded: true
+            },
+            {
+                key: "last7days",
+                title: "Last 7 Days",
+                subtitle: "Clips from the past week",
+                icon: "📅",
+                expanded: false
+            },
+            {
+                key: "older",
+                title: "Older",
+                subtitle: "Earlier saved clips",
+                icon: "🗂️",
+                expanded: false
+            }
+        ];
+
+        // ==========================================
+        // CARD RENDERER
+        // ==========================================
+
+        const renderCard = (clip, index) => {
+            const clipDate = clip.timestamp ?
+                new Date(clip.timestamp) :
+                new Date();
+
+            const year = isNaN(clipDate.getFullYear()) ?
+                new Date().getFullYear() :
+                clipDate.getFullYear();
+
+            const apaCitation =
+                `("${clip.text.slice(0, 40)}...", ${year}). Retrieved from ${clip.url}`;
 
             const tag = clip.tag || folderCategories[0];
-            const themeColor = colors[tag] || fallbackColors[index % fallbackColors.length];
+
+            const themeColor =
+                colors[tag] ||
+                fallbackColors[index % fallbackColors.length];
+
             const clipFolder = clip.folder || "General";
 
-            const tagOptions = folderCategories.map(cat => `<option value="${cat}" ${tag === cat ? 'selected' : ''}>${cat}</option>`).join('');
-            const folderOptions = folders.map(f => `<option value="${f}" ${clipFolder === f ? 'selected' : ''}>Move to: ${f}</option>`).join('');
+            const tagOptions = folderCategories.map(cat =>
+                `<option value="${cat}" ${tag === cat ? 'selected' : ''}>
+                    ${cat}
+                </option>`
+            ).join('');
+
+            const folderOptions = folders.map(f =>
+                `<option value="${f}" ${clipFolder === f ? 'selected' : ''}>
+                    Move to: ${f}
+                </option>`
+            ).join('');
 
             return `
-        <div class="card" data-id="${clip.id}" style="--theme-color: ${themeColor};">
-          <div class="card-header stop-propagation">
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <select class="tag-select" data-id="${clip.id}">${tagOptions}</select>
-              <select class="card-folder-select" data-id="${clip.id}">${folderOptions}</select>
-            </div>
-            <span class="date">${clip.timestamp || 'Just now'}</span>
-          </div>
-          <div class="quote-box">"${clip.text}"</div>
-          <div class="source" title="${clip.title}">📄 <span>${clip.title}</span></div>
-          
-          <div class="card-actions stop-propagation">
-            <button class="btn btn-apa copy-btn" data-citation="${apaCitation.replace(/"/g, '&quot;')}">📋 APA</button>
-            <div class="btn-group">
-              <button class="btn btn-share share-btn" data-id="${clip.id}">📤 Share</button>
-              <button class="btn btn-teleport teleport-btn" data-id="${clip.id}">Jump ↗</button>
-              <button class="btn btn-del delete-btn" data-id="${clip.id}" title="Delete clip">✖</button>
-            </div>
-          </div>
-        </div>
-      `;
-        }).join('');
+                <div class="card"
+                     data-id="${clip.id}"
+                     style="--theme-color: ${themeColor};">
+
+                    <div class="card-header stop-propagation">
+
+                        <div style="display: flex; gap: 8px; align-items: center;">
+
+                            <select class="tag-select"
+                                    data-id="${clip.id}">
+                                ${tagOptions}
+                            </select>
+
+                            <select class="card-folder-select"
+                                    data-id="${clip.id}">
+                                ${folderOptions}
+                            </select>
+
+                        </div>
+
+                        <span class="date">
+                            ${clip.timestamp || 'Just now'}
+                        </span>
+
+                    </div>
+
+                    <div class="quote-box">
+                        "${clip.text}"
+                    </div>
+
+                    <div class="source"
+                         title="${clip.title}">
+                        📄 <span>${clip.title}</span>
+                    </div>
+
+                    <div class="card-actions stop-propagation">
+
+                        <button
+                            class="btn btn-apa copy-btn"
+                            data-citation="${apaCitation.replace(/"/g, '&quot;')}">
+                            📋 APA
+                        </button>
+
+                        <div class="btn-group">
+
+                            <button
+                                class="btn btn-share share-btn"
+                                data-id="${clip.id}">
+                                📤 Share
+                            </button>
+
+                            <button
+                                class="btn btn-teleport teleport-btn"
+                                data-id="${clip.id}">
+                                Jump ↗
+                            </button>
+
+                            <button
+                                class="btn btn-del delete-btn"
+                                data-id="${clip.id}"
+                                title="Delete clip">
+                                ✖
+                            </button>
+
+                        </div>
+
+                    </div>
+
+                </div>
+            `;
+        };
+
+        // ==========================================
+        // BUILD DATE-GROUPED DASHBOARD
+        // ==========================================
+
+        let groupedHtml = "";
+
+        groupConfig.forEach(config => {
+
+            const groupClips = dateGroups[config.key];
+
+            // Don't display empty date groups
+            if (groupClips.length === 0) {
+                return;
+            }
+
+            const sectionId = `date-section-${config.key}`;
+
+            groupedHtml += `
+                <section
+                    class="date-group"
+                    data-date-group="${config.key}"
+                    style="
+                        margin-bottom: 24px;
+                        border-radius: 16px;
+                    "
+                >
+
+                    <div
+                        class="date-group-header"
+                        data-target="${sectionId}"
+                        style="
+                            display: flex;
+                            align-items: center;
+                            justify-content: space-between;
+                            padding: 14px 16px;
+                            margin-bottom: ${config.expanded ? '14px' : '0'};
+                            background: #ffffff;
+                            border: 1px solid #e2e8f0;
+                            border-radius: 14px;
+                            cursor: pointer;
+                            user-select: none;
+                            transition: background 0.2s ease, border-color 0.2s ease;
+                        "
+                    >
+
+                        <div
+                            style="
+                                display: flex;
+                                align-items: center;
+                                gap: 12px;
+                            "
+                        >
+
+                            <div
+                                style="
+                                    width: 38px;
+                                    height: 38px;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    background: #f1f5f9;
+                                    border-radius: 10px;
+                                    font-size: 18px;
+                                "
+                            >
+                                ${config.icon}
+                            </div>
+
+                            <div>
+
+                                <div
+                                    style="
+                                        color: #0f172a;
+                                        font-size: 16px;
+                                        font-weight: 800;
+                                    "
+                                >
+                                    ${config.title}
+                                </div>
+
+                                <div
+                                    style="
+                                        color: #94a3b8;
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        margin-top: 2px;
+                                    "
+                                >
+                                    ${config.subtitle}
+                                </div>
+
+                            </div>
+
+                            <span
+                                style="
+                                    display: inline-flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    min-width: 28px;
+                                    height: 24px;
+                                    padding: 0 8px;
+                                    background: #f1f5f9;
+                                    color: #475569;
+                                    border-radius: 12px;
+                                    font-size: 11px;
+                                    font-weight: 800;
+                                "
+                            >
+                                ${groupClips.length}
+                            </span>
+
+                        </div>
+
+                        <span
+                            class="date-group-arrow"
+                            style="
+                                font-size: 14px;
+                                color: #64748b;
+                                transition: transform 0.2s ease;
+                                transform: rotate(${config.expanded ? '0deg' : '-90deg'});
+                            "
+                        >
+                            ▼
+                        </span>
+
+                    </div>
+
+                    <div
+                        id="${sectionId}"
+                        class="date-group-content"
+                        data-expanded="${config.expanded}"
+                        style="
+                            display: ${config.expanded ? 'grid' : 'none'};
+                            gap: 16px;
+                        "
+                    >
+                        ${groupClips.map((clip, index) =>
+                            renderCard(clip, index)
+                        ).join('')}
+                    </div>
+
+                </section>
+            `;
+        });
+
+        grid.innerHTML = groupedHtml;
+
+        // ==========================================
+        // DATE GROUP COLLAPSE / EXPAND
+        // ==========================================
+
+        document.querySelectorAll(".date-group-header").forEach(header => {
+
+            header.addEventListener("click", () => {
+
+                const targetId = header.dataset.target;
+                const content = document.getElementById(targetId);
+
+                if (!content) {
+                    return;
+                }
+
+                const arrow =
+                    header.querySelector(".date-group-arrow");
+
+                const isExpanded =
+                    content.dataset.expanded === "true";
+
+                if (isExpanded) {
+
+                    content.style.display = "none";
+                    content.dataset.expanded = "false";
+
+                    header.style.marginBottom = "0px";
+
+                    if (arrow) {
+                        arrow.style.transform = "rotate(-90deg)";
+                    }
+
+                } else {
+
+                    content.style.display = "grid";
+                    content.dataset.expanded = "true";
+
+                    header.style.marginBottom = "14px";
+
+                    if (arrow) {
+                        arrow.style.transform = "rotate(0deg)";
+                    }
+                }
+            });
+
+            // Small visual feedback on hover
+            header.addEventListener("mouseenter", () => {
+                header.style.background = "#f8fafc";
+                header.style.borderColor = "#cbd5e1";
+            });
+
+            header.addEventListener("mouseleave", () => {
+                header.style.background = "#ffffff";
+                header.style.borderColor = "#e2e8f0";
+            });
+        });
+
+        // ==========================================
+        // EXISTING CARD LISTENERS
+        // ==========================================
+        // IMPORTANT:
+        // This remains the same system used by the existing
+        // Jump / Share / Delete / APA / tag / folder functionality.
 
         attachCardListeners(clips);
     });
