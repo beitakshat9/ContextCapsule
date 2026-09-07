@@ -15,7 +15,7 @@
     #clip-list::-webkit-scrollbar { width: 5px; }
     #clip-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
     
-    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; transition: border-color 0.2s ease; }
+    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; transition: border-color 0.2s ease; position: relative; }
     .card:hover { border-color: var(--accent); }
     .quote { font-size: 12.5px; line-height: 1.45; font-weight: 600; color: #f1f5f9; margin-bottom: 6px; font-style: italic; border-left: 2px solid var(--accent); padding-left: 8px; }
     .context { font-size: 11px; line-height: 1.4; color: var(--text-sub); margin-bottom: 12px; }
@@ -34,10 +34,14 @@
     .teleport-btn:hover { background: rgba(56, 189, 248, 0.2); }
     .delete-btn { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
     .delete-btn:hover { background: rgba(239, 68, 68, 0.2); }
+    .remind-btn { color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+    .remind-btn:hover { background: rgba(245, 158, 11, 0.2); }
     
     .footer { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
     .primary-btn { width: 100%; background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%); color: #fff; border: none; padding: 10px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2); transition: 0.2s; }
     .primary-btn:hover { opacity: 0.9; }
+
+    .reminder-badge { position: absolute; top: 10px; right: 10px; font-size: 10px; background: rgba(245,158,11,0.2); color: #fcd34d; padding: 2px 6px; border-radius: 12px; border: 1px solid rgba(245,158,11,0.3); font-weight: 700; }
   </style>
 </head>
 <body>
@@ -45,10 +49,26 @@
     <h2>⚡ Context Capsule</h2>
     <span class="counter" id="clip-count">0</span>
   </div>
+  
   <div id="clip-list"></div>
+  
   <div class="footer">
     <button id="open-dashboard" class="primary-btn">View Visual Knowledge Map ↗</button>
   </div>
+
+  <!-- Reminder Scheduling UI Modal -->
+  <div id="reminder-ui" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15,23,42,0.9); z-index: 100; align-items: center; justify-content: center; padding: 20px;">
+    <div style="background: var(--card-bg); padding: 20px; border-radius: 8px; border: 1px solid var(--accent); width: 100%; text-align: center;">
+      <h3 style="margin-bottom: 10px; font-size: 14px; color: white;">Set Reminder</h3>
+      <p style="font-size: 11px; color: var(--text-sub); margin-bottom: 12px;">When should we notify you?</p>
+      <input type="datetime-local" id="popup-reminder-datetime" style="width: 100%; padding: 8px; margin-bottom: 15px; background: var(--bg); color: #fff; border: 1px solid var(--border); border-radius: 4px; color-scheme: dark;">
+      <div style="display: flex; gap: 10px; justify-content: space-between;">
+        <button id="popup-cancel-reminder" style="flex:1; padding:8px; background: transparent; color: var(--text-sub); border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">Cancel</button>
+        <button id="popup-save-reminder" style="flex:1; padding:8px; background: var(--accent); color: #000; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Save</button>
+      </div>
+    </div>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>
