@@ -29,44 +29,73 @@ function scrapeContext(selectedText) {
     const cleanSnippet = encodeURIComponent(selectedText.trim().slice(0, 80));
     const teleportUrl = `${cleanBaseUrl}#:~:text=${cleanSnippet}`;
 
-    const clipData = {
-        id: Date.now(),
-        text: selectedText.trim(),
-        context: parentText.slice(0, 300),
-        title: document.title,
-        url: cleanBaseUrl,
-        teleportUrl: teleportUrl,
-        timestamp: new Date().toLocaleDateString(),
-        tag: "Evidence",
+    // ------------------------------------------
+    // Get the currently active research session
+    // ------------------------------------------
 
-        // Initial confidence.
-        // This is immediately replaced if the backend successfully evaluates it.
-        confidence: {
-            level: "grey",
-            reason: "Not enough information to evaluate."
-        }
-    };
+    chrome.storage.local.get({
+            clips: [],
+            activeResearchSession: null
+        },
+        (res) => {
 
-    chrome.storage.local.get({ clips: [] }, (res) => {
-        const updated = [clipData, ...res.clips];
+            // ------------------------------------------
+            // Create the clip exactly as before
+            // ------------------------------------------
 
-        chrome.storage.local.set({ clips: updated }, () => {
+            const clipData = {
+                id: Date.now(),
+                text: selectedText.trim(),
+                context: parentText.slice(0, 300),
+                title: document.title,
+                url: cleanBaseUrl,
+                teleportUrl: teleportUrl,
+                timestamp: new Date().toLocaleDateString(),
+                tag: "Evidence",
 
-            // IMPORTANT:
-            // The clip is already saved before confidence analysis starts.
-            alert("Clipped to Context Capsule!");
+                // Initial confidence.
+                // This is immediately replaced if the backend successfully evaluates it.
+                confidence: {
+                    level: "grey",
+                    reason: "Not enough information to evaluate."
+                }
+            };
 
-            // Ask the background service worker to evaluate confidence.
-            // If this fails, the saved clip remains untouched.
-            chrome.runtime.sendMessage({
-                action: "analyzeConfidence",
-                clipId: clipData.id,
-                text: clipData.text,
-                title: clipData.title,
-                url: clipData.url
+            // ------------------------------------------
+            // Attach the clip to the active research session
+            // ------------------------------------------
+
+            if (
+                res.activeResearchSession &&
+                typeof res.activeResearchSession.id === "string"
+            ) {
+                clipData.sessionId = res.activeResearchSession.id;
+            }
+
+            // ------------------------------------------
+            // Save the clip
+            // ------------------------------------------
+
+            const updated = [clipData, ...res.clips];
+
+            chrome.storage.local.set({ clips: updated }, () => {
+
+                // IMPORTANT:
+                // The clip is already saved before confidence analysis starts.
+                alert("Clipped to Context Capsule!");
+
+                // Ask the background service worker to evaluate confidence.
+                // If this fails, the saved clip remains untouched.
+                chrome.runtime.sendMessage({
+                    action: "analyzeConfidence",
+                    clipId: clipData.id,
+                    text: clipData.text,
+                    title: clipData.title,
+                    url: clipData.url
+                });
             });
-        });
-    });
+        }
+    );
 }
 
 
